@@ -73,7 +73,7 @@ if uploaded_file:
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
             df_result.to_excel(writer, index=False, sheet_name="분석결과")
-            writer.save()
+          
 
         today = datetime.date.today().strftime("%y.%m.%d")
         filename = f"{today} 셀링하니 좋은 상품 리스트_{analyze_option}.xlsx"
