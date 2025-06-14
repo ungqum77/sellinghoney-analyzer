@@ -5,7 +5,7 @@ import datetime
 import io
 
 st.set_page_config(page_title="셀링하니 슈퍼 소싱 자동 분석", layout="centered")
-st.title("셀링하니 슈퍼 소싱 자동 분석")
+st.title("셀링하니 슈퍼 소싱 자동 분석 Ver 3.0")
 
 uploaded_file = st.file_uploader("엑셀 파일 업로드 (10개 시트)", type="xlsx")
 
