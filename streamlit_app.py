@@ -4,8 +4,8 @@ import pandas as pd
 import datetime
 import io
 
-st.set_page_config(page_title="셀링하니 슈퍼 소싱 자동 분석 Ver-1.1", layout="centered")
-st.title("셀링하니 슈퍼 소싱 자동 분석 Ver-1.1")
+st.set_page_config(page_title="셀링하니 슈퍼 소싱 자동 분석", layout="centered")
+st.title("셀링하니 슈퍼 소싱 자동 분석")
 
 uploaded_file = st.file_uploader("엑셀 파일 업로드 (10개 시트)", type="xlsx")
 
@@ -13,6 +13,8 @@ analyze_option = st.radio(
     "분석 조건을 선택하세요:",
     ("경쟁도 낮은 상품", "매력도 높은 상품", "성장하는 상품", "급성장 상품")
 )
+
+start_analysis = st.button("분석 시작")
 
 option_map = {
     "경쟁도 낮은 상품": "lowCompetition",
@@ -61,7 +63,7 @@ def analyze_excel(file, analysis_type):
     result_df["순서_검색량순"] = result_df.index + 1
     return result_df
 
-if uploaded_file:
+if uploaded_file and start_analysis:
     analysis_key = option_map[analyze_option]
     with st.spinner("분석 중입니다... 잠시만 기다려주세요."):
         df_result = analyze_excel(uploaded_file, analysis_key)
@@ -73,7 +75,6 @@ if uploaded_file:
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
             df_result.to_excel(writer, index=False, sheet_name="분석결과")
-          
 
         today = datetime.date.today().strftime("%y.%m.%d")
         filename = f"{today} 셀링하니 좋은 상품 리스트_{analyze_option}.xlsx"
