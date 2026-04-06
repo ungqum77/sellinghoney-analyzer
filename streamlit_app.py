@@ -4,10 +4,10 @@ import datetime
 import io
 
 st.set_page_config(page_title="J.W의 슈퍼 소싱 분석기 2026", layout="wide")
-st.title("🚀 셀링하니 슈퍼 소싱 자동 분석 Ver 4.0")
-st.subheader("데이터는 정제하고, 전략은 Gems에게 맡기세요!")
+st.title("🚀 셀링하니 슈퍼 소싱 자동 분석 Ver 5.0")
+st.info("최신 엑셀 양식(클릭지수, 성장성 등)에 최적화되었습니다.")
 
-uploaded_file = st.file_uploader("엑셀 파일(xlsx)을 업로드하세요", type="xlsx")
+uploaded_file = st.file_uploader("셀링하니에서 받은 엑셀 파일을 업로드하세요", type="xlsx")
 
 analyze_option = st.radio(
     "분석 조건을 선택하세요:",
@@ -15,86 +15,90 @@ analyze_option = st.radio(
     horizontal=True
 )
 
-option_map = {
-    "경쟁도 낮은 상품": "lowCompetition",
-    "매력도 높은 상품": "highAttractiveness",
-    "성장하는 상품": "growing",
-    "급성장 상품": "explosive",
-}
-
 def analyze_excel(file, analysis_type):
     xls = pd.ExcelFile(file)
     all_results = []
 
     for sheet_name in xls.sheet_names:
         df = xls.parse(sheet_name)
-        
-        # [수정포인트 1] 컬럼명 유연하게 찾기 (공백 제거 등)
+        # 컬럼명 앞뒤 공백 제거
         df.columns = [str(c).strip() for c in df.columns]
-        
-        # 필수 컬럼 체크
-        required_cols = ["키워드", "검색량", "경쟁률"]
-        if not all(col in df.columns for col in required_cols):
-            continue # 필수 컬럼 없으면 이 시트는 건너뜀
 
-        # [수정포인트 2] 에러 방지를 위해 수치 데이터 강제 변환
+        # [핵심] 사진 속 명칭으로 매핑 (에러 방지)
+        mapping = {
+            '키워드': ['키워드', '상품명', '검색어'],
+            '검색량': ['클릭지수', '검색량', '월간검색수', '총클릭수'],
+            '경쟁률': ['경쟁률', '경쟁도', '경쟁강도', '상품수/클릭수'], # 경쟁률이 없으면 직접 계산할 수도 있음
+            '성장성': ['성장성', '성장도'],
+            '카테고리': ['전체 카테고리', '카테고리', '카테고리전체']
+        }
+        
+        for standard, aliases in mapping.items():
+            for alias in aliases:
+                if alias in df.columns:
+                    df.rename(columns={alias: standard}, inplace=True)
+                    break
+
+        # 필수 데이터가 '클릭지수(검색량)'만 있어도 일단 진행하게 수정
+        if '키워드' not in df.columns or '검색량' not in df.columns:
+            continue
+
+        # 데이터 숫자형 변환 (에러 방지)
         df["검색량"] = pd.to_numeric(df["검색량"], errors='coerce').fillna(0)
-        df["경쟁률"] = pd.to_numeric(df["경쟁률"], errors='coerce').fillna(999)
+        df["경쟁률"] = pd.to_numeric(df["경쟁률"], errors='coerce').fillna(0) # 없으면 0
+        df["성장성"] = pd.to_numeric(df.get("성장성", 0), errors='coerce').fillna(0)
         
         for _, row in df.iterrows():
             try:
-                경쟁률 = float(row["경쟁률"])
                 검색량 = int(row["검색량"])
+                경쟁률 = float(row["경쟁률"])
+                성장성 = float(row["성장성"])
                 
-                # 쇼핑성 키워드 체크 (없으면 기본 True)
-                쇼핑성 = True
-                if "쇼핑성키워드" in row:
-                    쇼핑성 = str(row["쇼핑성키워드"]).upper() in ["TRUE", "Y", "쇼핑성"]
+                # 분석 조건 설정 (클릭지수 기반으로 변경)
+                is_target = False
+                if analysis_type == "경쟁도 낮은 상품":
+                    is_target = 검색량 >= 3000 and 경쟁률 < 5
+                elif analysis_type == "매력도 높은 상품":
+                    is_target = 검색량 >= 5000
+                elif analysis_type == "성장하는 상품":
+                    is_target = 성장성 > 0 and 검색량 >= 2000
+                elif analysis_type == "급성장 상품":
+                    is_target = 성장성 >= 0.1 and 검색량 >= 2000
 
-                매력도 = float(row.get("매력도", 0))
-                성장성 = float(row.get("성장성", 0))
-
-                조건 = {
-                    "lowCompetition": 경쟁률 < 4 and 검색량 >= 5000 and 쇼핑성,
-                    "highAttractiveness": 매력도 >= 3 and 검색량 >= 5000 and 쇼핑성,
-                    "growing": 성장성 >= 0 and 검색량 >= 5000 and 쇼핑성 and 경쟁률 < 4,
-                    "explosive": 성장성 >= 0.15 and 검색량 >= 5000 and 쇼핑성,
-                }
-
-                if 조건[analysis_type]:
+                if is_target:
                     all_results.append({
                         "키워드": row["키워드"],
-                        "카테고리": row.get("카테고리전체", "미분류"),
-                        "검색량": 검색량,
+                        "카테고리": row.get("카테고리", "-"),
+                        "클릭지수(검색량)": 검색량,
                         "경쟁률": 경쟁률,
-                        "계절성": row.get("계절성", "-"),
+                        "성장성": f"{성장성*100:.1f}%" if 성장성 != 0 else "-",
+                        "계절성": row.get("계절성", "-")
                     })
             except:
                 continue
 
     return pd.DataFrame(all_results)
 
-if uploaded_file and st.button("분석 시작"):
-    with st.spinner("데이터 분석 중..."):
-        df_result = analyze_excel(uploaded_file, option_map[analyze_option])
+if uploaded_file and st.button("실시간 분석 시작"):
+    with st.spinner("데이터를 정제하는 중입니다..."):
+        df_result = analyze_excel(uploaded_file, analyze_option)
 
     if not df_result.empty:
-        df_result = df_result.sort_values(by="검색량", ascending=False).reset_index(drop=True)
-        st.success(f"총 {len(df_result)}개의 유망 상품을 찾았습니다!")
-        
-        # 화면 출력
+        df_result = df_result.sort_values(by="클릭지수(검색량)", ascending=False).reset_index(drop=True)
+        st.success(f"✅ 총 {len(df_result)}개의 유망 상품 아이템을 찾았습니다!")
         st.dataframe(df_result)
 
-        # [중요] Gems로 전달할 텍스트 요약 생성
-        st.info("💡 아래 요약 내용을 복사해서 Gemini Gems에 붙여넣으세요!")
-        summary_text = f"분석 결과 상위 5개 아이템: {', '.join(df_result['키워드'].head(5).tolist())}"
+        # Gems 연동용 요약 텍스트
+        st.markdown("---")
+        st.subheader("🤖 Gemini Gems에 전달할 데이터")
+        top_keywords = ", ".join(df_result['키워드'].head(5).tolist())
+        summary_text = f"상위 추천 키워드: {top_keywords}\n이 상품들에 대한 타겟 분석과 상세페이지 기획을 시작해줘."
         st.code(summary_text)
-
-        # 엑셀 다운로드 버튼
+        
+        # 다운로드 버튼
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
             df_result.to_excel(writer, index=False)
-        
-        st.download_button("결과 파일 다운로드", buffer, f"analysis_{analyze_option}.xlsx")
+        st.download_button("결과 파일 다운로드", buffer, "JW_Sourcing_Result.xlsx")
     else:
-        st.warning("조건에 맞는 상품이 없습니다. 엑셀의 컬럼명(키워드, 검색량, 경쟁률)을 확인해주세요.")
+        st.warning("조건에 맞는 상품이 없습니다. 분석 조건을 변경하거나 엑셀 데이터를 확인해주세요.")
