@@ -1,103 +1,118 @@
 import streamlit as st
 import pandas as pd
+import datetime
 import io
 
-st.set_page_config(page_title="J.W의 슈퍼 소싱 분석기 2026", layout="wide")
-st.title("🚀 셀링하니 슈퍼 소싱 자동 분석 Ver 6.0")
+st.set_page_config(page_title="셀링하니 슈퍼 소싱 자동 분석", layout="centered")
+st.title("셀링하니 슈퍼 소싱 자동 분석 Ver 3.0 (Restored)")
 
-uploaded_file = st.file_uploader("셀링하니 엑셀 파일을 업로드하세요", type="xlsx")
+uploaded_file = st.file_uploader("엑셀 파일 업로드 (셀링하니 데이터)", type="xlsx")
 
 analyze_option = st.radio(
     "분석 조건을 선택하세요:",
-    ("경쟁도 낮은 상품", "매력도 높은 상품", "성장하는 상품", "급성장 상품"),
-    horizontal=True
+    ("경쟁도 낮은 상품", "매력도 높은 상품", "성장하는 상품", "급성장 상품")
 )
 
-def clean_number(value):
-    """문자열에서 콤마 등을 제거하고 숫자로 변환하는 함수"""
-    try:
-        if pd.isna(value): return 0
-        # 숫자형태가 아니면 문자열로 바꿔서 콤마(,) 제거 후 숫자화
-        s = str(value).replace(',', '').strip()
-        return float(''.join(c for c in s if c.isdigit() or c == '.'))
-    except:
-        return 0
+start_analysis = st.button("분석 시작")
+
+option_map = {
+    "경쟁도 낮은 상품": "lowCompetition",
+    "매력도 높은 상품": "highAttractiveness",
+    "성장하는 상품": "growing",
+    "급성장 상품": "explosive",
+}
 
 def analyze_excel(file, analysis_type):
     xls = pd.ExcelFile(file)
-    all_results = []
+    result = []
 
     for sheet_name in xls.sheet_names:
         df = xls.parse(sheet_name)
-        df.columns = [str(c).strip() for c in df.columns]
-
-        # 1. 컬럼 매핑 (사진 속 명칭 100% 반영)
-        mapping = {
-            '키워드': ['키워드', '상품명', '검색어'],
-            '검색량': ['클릭지수', '검색량', '월간검색수', '총클릭수'],
-            '경쟁률': ['경쟁률', '경쟁도', '경쟁강도', '상품수/클릭수', '브랜드 점유율'],
-            '성장성': ['성장성', '성장도'],
-            '카테고리': ['전체 카테고리', '카테고리', '카테고리전체']
-        }
         
-        for standard, aliases in mapping.items():
-            for alias in aliases:
-                if alias in df.columns:
-                    df.rename(columns={alias: standard}, inplace=True)
-                    break
+        # 컬럼명 정리 (공백 제거)
+        df.columns = [str(c).strip() for c in df.columns]
+        
+        # 필수 컬럼(검색량, 경쟁률)이 있는지 확인 (무료 버전 대응)
+        # 만약 '클릭지수'로 되어 있다면 '검색량'으로 이름 변경
+        if '클릭지수' in df.columns:
+            df.rename(columns={'클릭지수': '검색량'}, inplace=True)
+        if '경쟁도' in df.columns:
+            df.rename(columns={'경쟁도': '경쟁률'}, inplace=True)
 
-        if '키워드' not in df.columns or '검색량' not in df.columns:
+        # 필수 컬럼이 없으면 해당 시트 스킵
+        if not {'검색량', '경쟁률'}.issubset(df.columns):
             continue
 
-        # 2. 데이터 정제 (콤마 제거 및 숫자 변환 핵심!)
-        df["검색량"] = df["검색량"].apply(clean_number)
-        df["경쟁률"] = df.get("경쟁률", 0).apply(clean_number)
-        df["성장성"] = df.get("성장성", 0).apply(clean_number)
-        
         for _, row in df.iterrows():
             try:
-                검색량 = row["검색량"]
-                경쟁률 = row["경쟁률"]
-                성장성 = row["성장성"]
+                # 데이터 숫자 변환 및 콤마 제거
+                경쟁률 = float(str(row["경쟁률"]).replace(',', ''))
+                검색량 = int(str(row["검색량"]).replace(',', ''))
                 
-                # [수정] 합격 기준을 '최소한'으로 낮춤 (일단 나오게 하는 게 목적)
-                is_target = False
-                if analysis_type == "경쟁도 낮은 상품":
-                    is_target = 검색량 >= 100 # 클릭수 100만 넘어도 일단 보여줌
-                elif analysis_type == "매력도 높은 상품":
-                    is_target = 검색량 >= 100
-                elif analysis_type == "성장하는 상품":
-                    is_target = 검색량 >= 100
-                elif analysis_type == "급성장 상품":
-                    is_target = 검색량 >= 100
+                # 쇼핑성키워드 컬럼이 없으면 기본 True로 처리 (무료 버전 대응)
+                쇼핑성 = True
+                if "쇼핑성키워드" in df.columns:
+                    쇼핑성 = str(row["쇼핑성키워드"]).upper() in [True, "TRUE", "Y", "쇼핑성"]
+                
+                # 매력도, 성장성 컬럼이 없으면 0으로 처리
+                매력도 = float(row.get("매력도", 0))
+                성장성 = float(row.get("성장성", 0))
 
-                if is_target:
-                    all_results.append({
-                        "키워드": row["키워드"],
-                        "카테고리": row.get("카테고리", "-"),
-                        "클릭지수": int(검색량),
+                조건 = {
+                    "lowCompetition": 경쟁률 < 4 and 검색량 >= 5000 and 쇼핑성,
+                    "highAttractiveness": 매력도 >= 3 and 검색량 >= 5000 and 쇼핑성,
+                    "growing": 성장성 >= 0 and 검색량 >= 5000 and 쇼핑성 and 경쟁률 < 4,
+                    "explosive": 성장성 >= 0.15 and 검색량 >= 5000 and 쇼핑성,
+                }
+
+                if 조건[analysis_type]:
+                    result.append({
+                        "순서_검색량순": 0,
+                        "키워드": row.get("키워드", "알수없음"),
+                        "카테고리전체": row.get("카테고리전체", row.get("전체 카테고리", "-")),
+                        "검색량": 검색량,
                         "경쟁률": 경쟁률,
-                        "성장성": 성장성
+                        "광고경쟁강도": row.get("광고경쟁강도", "-"),
+                        "계절성": row.get("계절성", "-"),
                     })
             except:
                 continue
 
-    return pd.DataFrame(all_results)
+    result_df = pd.DataFrame(result)
+    if not result_df.empty:
+        result_df = result_df.sort_values(by="검색량", ascending=False).reset_index(drop=True)
+        result_df["순서_검색량순"] = result_df.index + 1
+    return result_df
 
-if uploaded_file and st.button("분석 시작"):
-    with st.spinner("데이터 정밀 분석 중..."):
-        df_result = analyze_excel(uploaded_file, analyze_option)
+if uploaded_file and start_analysis:
+    analysis_key = option_map[analyze_option]
+    with st.spinner("분석 중입니다... 잠시만 기다려주세요."):
+        df_result = analyze_excel(uploaded_file, analysis_key)
 
     if not df_result.empty:
-        df_result = df_result.sort_values(by="클릭지수", ascending=False).reset_index(drop=True)
-        st.success(f"✅ 총 {len(df_result)}개의 아이템을 찾았습니다!")
-        st.dataframe(df_result)
-        
-        # Gems 전달용 요약
-        top_5 = ", ".join(df_result['키워드'].head(5).tolist())
-        st.code(f"추천 키워드: {top_5}")
+        st.success("완벽한 상품 리스트가 준비되었습니다.")
+        st.dataframe(df_result.head(10))
+
+        # Gems 연동을 위한 텍스트 박스 추가 (강의용)
+        st.info("💡 이 키워드들을 복사해서 Gemini Gems에 넣으세요!")
+        top_keywords = ", ".join(df_result['키워드'].head(5).tolist())
+        st.code(f"추천 키워드 리스트: {top_keywords}")
+
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+            df_result.to_excel(writer, index=False, sheet_name="분석결과")
+
+        today = datetime.date.today().strftime("%y.%m.%d")
+        filename = f"{today} 소싱 리스트_{analyze_option}.xlsx"
+
+        st.download_button(
+            label="엑셀 다운로드",
+            data=buffer,
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
     else:
-        st.error("데이터를 찾을 수 없습니다. 엑셀 파일의 시트에 데이터가 있는지, 혹은 '키워드'와 '클릭지수' 컬럼이 있는지 확인해주세요.")
-        # 디버깅용: 실제 읽어온 컬럼명을 보여줌
-        tmp_df = pd.read_excel(uploaded_file)
-        st.write("현재 엑셀에서 인식된 컬럼명들:", tmp_df.columns.tolist())
+        st.warning("조건에 맞는 데이터가 없습니다. 검색량 기준(5000)을 확인하거나 다른 파일을 업로드해주세요.")
+
+st.markdown("---")
+st.markdown("다른 파일을 업로드 하시면 새로운 분석을 진행 합니다")
