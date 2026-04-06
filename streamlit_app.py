@@ -3,116 +3,140 @@ import pandas as pd
 import datetime
 import io
 
-st.set_page_config(page_title="셀링하니 슈퍼 소싱 자동 분석", layout="centered")
-st.title("셀링하니 슈퍼 소싱 자동 분석 Ver 3.0 (Restored)")
+# 1. 페이지 설정 및 제목
+st.set_page_config(page_title="J.W의 전천후 소싱 분석기", layout="wide")
+st.title("🚀 셀링하니 4대 전략 통합 분석기 Ver 7.0")
+st.markdown("---")
 
-uploaded_file = st.file_uploader("엑셀 파일 업로드 (셀링하니 데이터)", type="xlsx")
+# 2. 사이드바 설정 (출력 개수 조절)
+st.sidebar.header("📊 출력 설정")
+show_count = st.sidebar.slider("화면에 보여줄 상품 개수 선택", min_value=5, max_value=100, value=20, step=5)
 
-analyze_option = st.radio(
-    "분석 조건을 선택하세요:",
-    ("경쟁도 낮은 상품", "매력도 높은 상품", "성장하는 상품", "급성장 상품")
-)
+# 3. 파일 업로드
+uploaded_file = st.file_uploader("셀링하니 엑셀 파일을 업로드하세요 (xlsx)", type="xlsx")
 
-start_analysis = st.button("분석 시작")
-
-option_map = {
-    "경쟁도 낮은 상품": "lowCompetition",
-    "매력도 높은 상품": "highAttractiveness",
-    "성장하는 상품": "growing",
-    "급성장 상품": "explosive",
-}
-
-def analyze_excel(file, analysis_type):
+def analyze_all_strategies(file):
+    """파일 하나를 읽어 4가지 전략 결과를 딕셔너리로 반환"""
     xls = pd.ExcelFile(file)
-    result = []
+    # 결과를 담을 그릇 준비
+    final_reports = {
+        "경쟁도 낮은 상품": [],
+        "매력도 높은 상품": [],
+        "성장하는 상품": [],
+        "급성장 상품": []
+    }
 
     for sheet_name in xls.sheet_names:
         df = xls.parse(sheet_name)
-        
-        # 컬럼명 정리 (공백 제거)
         df.columns = [str(c).strip() for c in df.columns]
-        
-        # 필수 컬럼(검색량, 경쟁률)이 있는지 확인 (무료 버전 대응)
-        # 만약 '클릭지수'로 되어 있다면 '검색량'으로 이름 변경
-        if '클릭지수' in df.columns:
-            df.rename(columns={'클릭지수': '검색량'}, inplace=True)
-        if '경쟁도' in df.columns:
-            df.rename(columns={'경쟁도': '경쟁률'}, inplace=True)
 
-        # 필수 컬럼이 없으면 해당 시트 스킵
-        if not {'검색량', '경쟁률'}.issubset(df.columns):
+        # 컬럼 명칭 유연하게 매핑 (무료/유료 버전 모두 대응)
+        mapping = {
+            '키워드': ['키워드', '상품명', '검색어'],
+            '검색량': ['클릭지수', '검색량', '월간검색수', '총클릭수'],
+            '경쟁률': ['경쟁률', '경쟁도', '상품수/클릭수', '경쟁강도'],
+            '매력도': ['매력도', '상품매력도'],
+            '성장성': ['성장성', '성장도']
+        }
+        
+        for standard, aliases in mapping.items():
+            for alias in aliases:
+                if alias in df.columns:
+                    df.rename(columns={alias: standard}, inplace=True)
+                    break
+
+        if '키워드' not in df.columns or '검색량' not in df.columns:
             continue
 
+        # 데이터 숫자형 변환 및 콤마 제거
+        def to_num(val):
+            try: return float(str(val).replace(',', ''))
+            except: return 0
+
+        df["검색량"] = df["검색량"].apply(to_num)
+        df["경쟁률"] = df.get("경쟁률", 0).apply(to_num)
+        df["매력도"] = df.get("매력도", 0).apply(to_num)
+        df["성장성"] = df.get("성장성", 0).apply(to_num)
+
         for _, row in df.iterrows():
-            try:
-                # 데이터 숫자 변환 및 콤마 제거
-                경쟁률 = float(str(row["경쟁률"]).replace(',', ''))
-                검색량 = int(str(row["검색량"]).replace(',', ''))
+            item = {
+                "키워드": row["키워드"],
+                "카테고리": row.get("전체 카테고리", row.get("카테고리", "-")),
+                "검색량": int(row["검색량"]),
+                "경쟁률": round(row["경쟁률"], 2),
+                "매력도": round(row["매력도"], 2),
+                "성장성": round(row["성장성"], 2)
+            }
+            
+            # [전략 1] 경쟁도 낮은 (검색량 2000↑, 경쟁률 4↓)
+            if item["검색량"] >= 2000 and (0 < item["경쟁률"] < 4):
+                final_reports["경쟁도 낮은 상품"].append(item)
+            
+            # [전략 2] 매력도 높은 (매력도 3↑, 검색량 3000↑)
+            if item["매력도"] >= 3 and item["검색량"] >= 3000:
+                final_reports["매력도 높은 상품"].append(item)
                 
-                # 쇼핑성키워드 컬럼이 없으면 기본 True로 처리 (무료 버전 대응)
-                쇼핑성 = True
-                if "쇼핑성키워드" in df.columns:
-                    쇼핑성 = str(row["쇼핑성키워드"]).upper() in [True, "TRUE", "Y", "쇼핑성"]
+            # [전략 3] 성장하는 (성장성 0↑, 검색량 2000↑)
+            if item["성장성"] > 0 and item["검색량"] >= 2000:
+                final_reports["성장하는 상품"].append(item)
                 
-                # 매력도, 성장성 컬럼이 없으면 0으로 처리
-                매력도 = float(row.get("매력도", 0))
-                성장성 = float(row.get("성장성", 0))
+            # [전략 4] 급성장 (성장성 0.15↑, 검색량 1000↑)
+            if item["성장성"] >= 0.15 and item["검색량"] >= 1000:
+                final_reports["급성장 상품"].append(item)
 
-                조건 = {
-                    "lowCompetition": 경쟁률 < 4 and 검색량 >= 5000 and 쇼핑성,
-                    "highAttractiveness": 매력도 >= 3 and 검색량 >= 5000 and 쇼핑성,
-                    "growing": 성장성 >= 0 and 검색량 >= 5000 and 쇼핑성 and 경쟁률 < 4,
-                    "explosive": 성장성 >= 0.15 and 검색량 >= 5000 and 쇼핑성,
-                }
+    # DataFrame 변환 및 검색량 순 정렬
+    for key in final_reports:
+        df_tmp = pd.DataFrame(final_reports[key])
+        if not df_tmp.empty:
+            final_reports[key] = df_tmp.sort_values(by="검색량", ascending=False).reset_index(drop=True)
+        else:
+            final_reports[key] = pd.DataFrame()
+            
+    return final_reports
 
-                if 조건[analysis_type]:
-                    result.append({
-                        "순서_검색량순": 0,
-                        "키워드": row.get("키워드", "알수없음"),
-                        "카테고리전체": row.get("카테고리전체", row.get("전체 카테고리", "-")),
-                        "검색량": 검색량,
-                        "경쟁률": 경쟁률,
-                        "광고경쟁강도": row.get("광고경쟁강도", "-"),
-                        "계절성": row.get("계절성", "-"),
-                    })
-            except:
-                continue
+if uploaded_file:
+    # 1회 분석으로 모든 결과 도출
+    with st.spinner("🚀 4대 전략적 관점으로 데이터를 동시에 분석 중입니다..."):
+        all_results = analyze_all_strategies(uploaded_file)
+    
+    st.success("✅ 분석 완료! 상단 라디오 버튼을 클릭하여 리포트를 전환하세요.")
 
-    result_df = pd.DataFrame(result)
-    if not result_df.empty:
-        result_df = result_df.sort_values(by="검색량", ascending=False).reset_index(drop=True)
-        result_df["순서_검색량순"] = result_df.index + 1
-    return result_df
-
-if uploaded_file and start_analysis:
-    analysis_key = option_map[analyze_option]
-    with st.spinner("분석 중입니다... 잠시만 기다려주세요."):
-        df_result = analyze_excel(uploaded_file, analysis_key)
-
-    if not df_result.empty:
-        st.success("완벽한 상품 리스트가 준비되었습니다.")
-        st.dataframe(df_result.head(10))
-
-        # Gems 연동을 위한 텍스트 박스 추가 (강의용)
-        st.info("💡 이 키워드들을 복사해서 Gemini Gems에 넣으세요!")
-        top_keywords = ", ".join(df_result['키워드'].head(5).tolist())
-        st.code(f"추천 키워드 리스트: {top_keywords}")
-
+    # 4가지 필터 선택 (라디오 버튼)
+    choice = st.radio(
+        "🧐 어떤 전략의 상품을 확인하시겠습니까?", 
+        list(all_results.keys()), 
+        horizontal=True
+    )
+    
+    target_df = all_results[choice]
+    
+    if not target_df.empty:
+        # 사용자가 설정한 개수만큼 슬라이싱
+        display_df = target_df.head(show_count).copy()
+        display_df.index = display_df.index + 1 # 순번 1부터 시작
+        
+        st.subheader(f"📊 {choice} 리포트 (TOP {len(display_df)})")
+        st.dataframe(display_df, use_container_width=True)
+        
+        # 💡 Gems 브릿지 (강의 핵심 포인트)
+        st.markdown("---")
+        st.subheader("🤖 Gemini Gems용 데이터 복사")
+        top_k = ", ".join(display_df['키워드'].head(5).tolist())
+        st.code(f"추천 키워드 리스트: {top_k}\n이 상품들의 타겟 페르소나와 상세페이지 기획안을 작성해줘.")
+        
+        # 엑셀 다운로드
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-            df_result.to_excel(writer, index=False, sheet_name="분석결과")
-
-        today = datetime.date.today().strftime("%y.%m.%d")
-        filename = f"{today} 소싱 리스트_{analyze_option}.xlsx"
-
+            display_df.to_excel(writer, index=False)
+        
         st.download_button(
-            label="엑셀 다운로드",
+            label=f"📥 {choice} 리스트 엑셀 다운로드",
             data=buffer,
-            file_name=filename,
+            file_name=f"JW_Sourcing_{choice}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     else:
-        st.warning("조건에 맞는 데이터가 없습니다. 검색량 기준(5000)을 확인하거나 다른 파일을 업로드해주세요.")
+        st.warning(f"앗! '{choice}' 조건에 부합하는 상품이 엑셀 파일 내에 없습니다. 다른 전략을 선택해보세요.")
 
 st.markdown("---")
-st.markdown("다른 파일을 업로드 하시면 새로운 분석을 진행 합니다")
+st.caption("Produced by CEO J.W Lim | Digital Startup Strategist")
